@@ -23,7 +23,7 @@ func listStudents(c *fiber.Ctx) error {
 	q := parseListQuery(c)
 
 	// Mengambil data melalui repository
-	hasil, total, err := studentRepo.List(q)
+	hasil, total, err := studentRepo.FindAll(q)
 	if err != nil {
 		return fail(
 			c,
@@ -78,24 +78,7 @@ func getStudent(c *fiber.Ctx) error {
 		)
 	}
 
-	var student Student
-
-	err := db.QueryRow(
-		c.Context(),
-		`
-		SELECT id, nim, name, grade, is_active, created_at
-		FROM students
-		WHERE id = $1
-		`,
-		id,
-	).Scan(
-		&student.ID,
-		&student.NIM,
-		&student.Name,
-		&student.Grade,
-		&student.IsActive,
-		&student.CreatedAt,
-	)
+	student, err := studentRepo.FindByID(id)
 
 	if err != nil {
 		return fail(
@@ -155,19 +138,7 @@ func createStudent(c *fiber.Ctx) error {
 	}
 
 	// Mengecek NIM duplikat di PostgreSQL
-	var exists bool
-
-	err := db.QueryRow(
-		c.Context(),
-		`
-		SELECT EXISTS(
-			SELECT 1
-			FROM students
-			WHERE LOWER(nim) = LOWER($1)
-		)
-		`,
-		req.NIM,
-	).Scan(&exists)
+	exists, err := studentRepo.ExistsByNIM(req.NIM)
 
 	if err != nil {
 		return fail(
@@ -188,27 +159,7 @@ func createStudent(c *fiber.Ctx) error {
 	}
 
 	// Menyimpan student ke PostgreSQL
-	var student Student
-
-	err = db.QueryRow(
-		c.Context(),
-		`
-		INSERT INTO students (nim, name, grade, is_active)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, nim, name, grade, is_active, created_at
-		`,
-		req.NIM,
-		req.Name,
-		req.Grade,
-		req.IsActive,
-	).Scan(
-		&student.ID,
-		&student.NIM,
-		&student.Name,
-		&student.Grade,
-		&student.IsActive,
-		&student.CreatedAt,
-	)
+	student, err := studentRepo.Create(req)
 
 	if err != nil {
 		return fail(
@@ -224,4 +175,91 @@ func createStudent(c *fiber.Ctx) error {
 		"student berhasil dibuat",
 		student,
 	)
+}
+
+// PUT /api/v1/students/:id
+func updateStudent(c *fiber.Ctx) error {
+	id, valid := paramID(c)
+
+	if !valid {
+		return fail(
+			c,
+			fiber.StatusBadRequest,
+			"id harus berupa angka positif",
+			nil,
+		)
+	}
+
+	var req ReplaceStudentRequest
+
+	if err := c.BodyParser(&req); err != nil {
+		return fail(
+			c,
+			fiber.StatusBadRequest,
+			"format JSON tidak valid",
+			nil,
+		)
+	}
+
+	if strings.TrimSpace(req.NIM) == "" {
+		return failValidation(
+			c,
+			map[string]string{
+				"nim": "wajib diisi",
+			},
+		)
+	}
+
+	if strings.TrimSpace(req.Name) == "" {
+		return failValidation(
+			c,
+			map[string]string{
+				"name": "wajib diisi",
+			},
+		)
+	}
+
+	student, err := studentRepo.Update(id, req)
+
+	if err != nil {
+		return fail(
+			c,
+			fiber.StatusInternalServerError,
+			"gagal memperbarui student",
+			err.Error(),
+		)
+	}
+
+	return ok(
+		c,
+		"student berhasil diperbarui",
+		student,
+	)
+}
+
+// DELETE /api/v1/students/:id
+func deleteStudent(c *fiber.Ctx) error {
+	id, valid := paramID(c)
+
+	if !valid {
+		return fail(
+			c,
+			fiber.StatusBadRequest,
+			"id harus berupa angka positif",
+			nil,
+		)
+	}
+
+	err := studentRepo.Delete(id)
+
+	if err != nil {
+		return fail(
+			c,
+			fiber.StatusInternalServerError,
+			"gagal menghapus student",
+			err.Error(),
+		)
+	}
+
+	return noContent(c)
 }
