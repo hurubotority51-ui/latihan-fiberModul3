@@ -11,7 +11,7 @@ func TestConnectDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gagal koneksi database: %v", err)
 	}
-	defer conn.Close(context.Background())
+	defer conn.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

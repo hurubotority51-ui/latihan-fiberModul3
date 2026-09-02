@@ -6,13 +6,13 @@ import (
 	"os"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var db *pgx.Conn
+var db *pgxpool.Pool
 var studentRepo StudentRepository
 
-func connectDB() (*pgx.Conn, error) {
+func connectDB() (*pgxpool.Pool, error) {
 	connString := os.Getenv("DATABASE_URL")
 
 	if connString == "" {
@@ -22,17 +22,17 @@ func connectDB() (*pgx.Conn, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	conn, err := pgx.Connect(ctx, connString)
+	pool, err := pgxpool.New(ctx, connString)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := conn.Ping(ctx); err != nil {
-		conn.Close(ctx)
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
 		return nil, err
 	}
 
 	fmt.Println("Database connected successfully")
 
-	return conn, nil
+	return pool, nil
 }
