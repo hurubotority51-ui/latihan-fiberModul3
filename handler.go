@@ -1,7 +1,7 @@
 package main
 
 import (
-	"sort"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -48,55 +48,136 @@ func paramID(c *fiber.Ctx) (int, bool) {
 func listStudents(c *fiber.Ctx) error {
 	q := parseListQuery(c)
 
+	offset := (q.Page - 1) * q.Limit
+
+	query := `
+		SELECT id, nim, name, grade, is_active, created_at
+		FROM students
+	`
+
+	args := []any{}
+	conditions := []string{}
+
+	// Filter is_active
+	if q.IsActive != nil {
+		args = append(args, *q.IsActive)
+
+		conditions = append(
+			conditions,
+			fmt.Sprintf("is_active = $%d", len(args)),
+		)
+	}
+
+	// Search berdasarkan NIM atau nama
+	if q.Search != "" {
+		args = append(args, "%"+q.Search+"%")
+
+		conditions = append(
+			conditions,
+			fmt.Sprintf(
+				"(nim ILIKE $%d OR name ILIKE $%d)",
+				len(args),
+				len(args),
+			),
+		)
+	}
+
+	// WHERE
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	// Sorting
+	query += " ORDER BY " + q.Sort + " " + strings.ToUpper(q.Order)
+
+	// Pagination
+	query += fmt.Sprintf(
+		" LIMIT $%d OFFSET $%d",
+		len(args)+1,
+		len(args)+2,
+	)
+
+	args = append(args, q.Limit, offset)
+
+	// Menjalankan query
+	rows, err := db.Query(
+		c.Context(),
+		query,
+		args...,
+	)
+
+	if err != nil {
+		return fail(
+			c,
+			fiber.StatusInternalServerError,
+			"gagal mengambil data student",
+			err.Error(),
+		)
+	}
+
+	defer rows.Close()
+
 	hasil := []Student{}
 
-	// Filter data
-	for _, s := range students {
+	// Membaca hasil query
+	for rows.Next() {
+		var s Student
 
-		if q.IsActive != nil && s.IsActive != *q.IsActive {
-			continue
-		}
+		err := rows.Scan(
+			&s.ID,
+			&s.NIM,
+			&s.Name,
+			&s.Grade,
+			&s.IsActive,
+			&s.CreatedAt,
+		)
 
-		if q.Search != "" && !searchMatch(s, q.Search) {
-			continue
+		if err != nil {
+			return fail(
+				c,
+				fiber.StatusInternalServerError,
+				"gagal membaca data student",
+				err.Error(),
+			)
 		}
 
 		hasil = append(hasil, s)
 	}
 
-	// Sorting
-	sort.SliceStable(hasil, func(i, j int) bool {
-		var smaller bool
+	if err := rows.Err(); err != nil {
+		return fail(
+			c,
+			fiber.StatusInternalServerError,
+			"terjadi kesalahan saat membaca data student",
+			err.Error(),
+		)
+	}
 
-		switch q.Sort {
+	// Menghitung total data
+	countQuery := "SELECT COUNT(*) FROM students"
 
-		case "nim":
-			smaller = hasil[i].NIM < hasil[j].NIM
+	countArgs := args[:len(args)-2]
 
-		case "name":
-			smaller = hasil[i].Name < hasil[j].Name
+	if len(conditions) > 0 {
+		countQuery += " WHERE " + strings.Join(conditions, " AND ")
+	}
 
-		case "grade":
-			smaller = hasil[i].Grade < hasil[j].Grade
+	var total int
 
-		case "created_at":
-			smaller = hasil[i].CreatedAt.Before(
-				hasil[j].CreatedAt,
-			)
+	err = db.QueryRow(
+		c.Context(),
+		countQuery,
+		countArgs...,
+	).Scan(&total)
 
-		default:
-			smaller = hasil[i].ID < hasil[j].ID
-		}
-
-		if q.Order == "desc" {
-			return !smaller
-		}
-
-		return smaller
-	})
-
-	// Pagination
-	total := len(hasil)
+	if err != nil {
+		return fail(
+			c,
+			fiber.StatusInternalServerError,
+			"gagal menghitung total student",
+			err.Error(),
+		)
+	}
 
 	totalPages := 0
 
@@ -119,7 +200,7 @@ func listStudents(c *fiber.Ctx) error {
 	return okList(
 		c,
 		"daftar student berhasil diambil",
-		hasil[mulai:akhir],
+		hasil,
 		Meta{
 			Page:       q.Page,
 			Limit:      q.Limit,
