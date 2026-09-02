@@ -23,5 +23,8 @@ func main() {
 	app.Post("/api/v1/students", createStudent)
 
 	fmt.Println("Server is running at http://localhost:3000")
-	app.Listen(":3000")
+
+	if err := app.Listen(":3000"); err != nil {
+		panic(err)
+	}
 }

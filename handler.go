@@ -4,36 +4,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-var students []Student
-var nextID = 1
-
-// Mencari index student berdasarkan ID
-func findStudentIndex(id int) int {
-	for i := range students {
-		if students[i].ID == id {
-			return i
-		}
-	}
-
-	return -1
-}
-
-// Mencari student berdasarkan kata pencarian
-func searchMatch(s Student, kata string) bool {
-	kata = strings.ToLower(kata)
-
-	return strings.Contains(
-		strings.ToLower(s.Name),
-		kata,
-	)
-}
-
-// Mengambil ID dari parameter URL
+// Mencari ID dari parameter URL
 func paramID(c *fiber.Ctx) (int, bool) {
 	id, err := strconv.Atoi(c.Params("id"))
 
@@ -58,7 +33,7 @@ func listStudents(c *fiber.Ctx) error {
 	args := []any{}
 	conditions := []string{}
 
-	// Filter is_active
+	// Filter berdasarkan is_active
 	if q.IsActive != nil {
 		args = append(args, *q.IsActive)
 
@@ -153,7 +128,7 @@ func listStudents(c *fiber.Ctx) error {
 		)
 	}
 
-	// Menghitung total data
+	// Query untuk menghitung total data
 	countQuery := "SELECT COUNT(*) FROM students"
 
 	countArgs := args[:len(args)-2]
@@ -224,9 +199,26 @@ func getStudent(c *fiber.Ctx) error {
 		)
 	}
 
-	index := findStudentIndex(id)
+	var student Student
 
-	if index == -1 {
+	err := db.QueryRow(
+		c.Context(),
+		`
+		SELECT id, nim, name, grade, is_active, created_at
+		FROM students
+		WHERE id = $1
+		`,
+		id,
+	).Scan(
+		&student.ID,
+		&student.NIM,
+		&student.Name,
+		&student.Grade,
+		&student.IsActive,
+		&student.CreatedAt,
+	)
+
+	if err != nil {
 		return fail(
 			c,
 			fiber.StatusNotFound,
@@ -238,7 +230,7 @@ func getStudent(c *fiber.Ctx) error {
 	return ok(
 		c,
 		"student ditemukan",
-		students[index],
+		student,
 	)
 }
 
@@ -278,38 +270,79 @@ func createStudent(c *fiber.Ctx) error {
 		errs["grade"] = "nilai harus berada antara 0 dan 4"
 	}
 
-	// Mengecek NIM duplikat
-	for _, s := range students {
-
-		if strings.EqualFold(s.NIM, req.NIM) {
-			errs["nim"] = "sudah digunakan"
-		}
-	}
-
-	// Jika ada error validasi
+	// Jika validasi gagal
 	if len(errs) > 0 {
 		return failValidation(c, errs)
 	}
 
-	// Membuat data student baru
-	baru := Student{
-		ID:        nextID,
-		NIM:       req.NIM,
-		Name:      req.Name,
-		Grade:     req.Grade,
-		IsActive:  req.IsActive,
-		CreatedAt: time.Now(),
+	// Mengecek NIM duplikat di PostgreSQL
+	var exists bool
+
+	err := db.QueryRow(
+		c.Context(),
+		`
+		SELECT EXISTS(
+			SELECT 1
+			FROM students
+			WHERE LOWER(nim) = LOWER($1)
+		)
+		`,
+		req.NIM,
+	).Scan(&exists)
+
+	if err != nil {
+		return fail(
+			c,
+			fiber.StatusInternalServerError,
+			"gagal mengecek NIM",
+			err.Error(),
+		)
 	}
 
-	// Menambahkan ke slice
-	students = append(students, baru)
+	if exists {
+		return failValidation(
+			c,
+			map[string]string{
+				"nim": "sudah digunakan",
+			},
+		)
+	}
 
-	// ID berikutnya
-	nextID++
+	// Menyimpan student ke PostgreSQL
+	var student Student
+
+	err = db.QueryRow(
+		c.Context(),
+		`
+		INSERT INTO students (nim, name, grade, is_active)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, nim, name, grade, is_active, created_at
+		`,
+		req.NIM,
+		req.Name,
+		req.Grade,
+		req.IsActive,
+	).Scan(
+		&student.ID,
+		&student.NIM,
+		&student.Name,
+		&student.Grade,
+		&student.IsActive,
+		&student.CreatedAt,
+	)
+
+	if err != nil {
+		return fail(
+			c,
+			fiber.StatusInternalServerError,
+			"gagal membuat student",
+			err.Error(),
+		)
+	}
 
 	return created(
 		c,
 		"student berhasil dibuat",
-		baru,
+		student,
 	)
 }
