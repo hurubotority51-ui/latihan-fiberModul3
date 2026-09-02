@@ -1,4 +1,5 @@
 package main
+
 import (
 	"context"
 	"fmt"
@@ -7,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 )
+
+var db *pgx.Conn
 
 func connectDB() (*pgx.Conn, error) {
 	connString := os.Getenv("DATABASE_URL")
