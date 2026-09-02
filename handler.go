@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -23,133 +22,13 @@ func paramID(c *fiber.Ctx) (int, bool) {
 func listStudents(c *fiber.Ctx) error {
 	q := parseListQuery(c)
 
-	offset := (q.Page - 1) * q.Limit
-
-	query := `
-		SELECT id, nim, name, grade, is_active, created_at
-		FROM students
-	`
-
-	args := []any{}
-	conditions := []string{}
-
-	// Filter berdasarkan is_active
-	if q.IsActive != nil {
-		args = append(args, *q.IsActive)
-
-		conditions = append(
-			conditions,
-			fmt.Sprintf("is_active = $%d", len(args)),
-		)
-	}
-
-	// Search berdasarkan NIM atau nama
-	if q.Search != "" {
-		args = append(args, "%"+q.Search+"%")
-
-		conditions = append(
-			conditions,
-			fmt.Sprintf(
-				"(nim ILIKE $%d OR name ILIKE $%d)",
-				len(args),
-				len(args),
-			),
-		)
-	}
-
-	// WHERE
-	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
-	}
-
-	// Sorting
-	query += " ORDER BY " + q.Sort + " " + strings.ToUpper(q.Order)
-
-	// Pagination
-	query += fmt.Sprintf(
-		" LIMIT $%d OFFSET $%d",
-		len(args)+1,
-		len(args)+2,
-	)
-
-	args = append(args, q.Limit, offset)
-
-	// Menjalankan query
-	rows, err := db.Query(
-		c.Context(),
-		query,
-		args...,
-	)
-
+	// Mengambil data melalui repository
+	hasil, total, err := studentRepo.List(q)
 	if err != nil {
 		return fail(
 			c,
 			fiber.StatusInternalServerError,
 			"gagal mengambil data student",
-			err.Error(),
-		)
-	}
-
-	defer rows.Close()
-
-	hasil := []Student{}
-
-	// Membaca hasil query
-	for rows.Next() {
-		var s Student
-
-		err := rows.Scan(
-			&s.ID,
-			&s.NIM,
-			&s.Name,
-			&s.Grade,
-			&s.IsActive,
-			&s.CreatedAt,
-		)
-
-		if err != nil {
-			return fail(
-				c,
-				fiber.StatusInternalServerError,
-				"gagal membaca data student",
-				err.Error(),
-			)
-		}
-
-		hasil = append(hasil, s)
-	}
-
-	if err := rows.Err(); err != nil {
-		return fail(
-			c,
-			fiber.StatusInternalServerError,
-			"terjadi kesalahan saat membaca data student",
-			err.Error(),
-		)
-	}
-
-	// Query untuk menghitung total data
-	countQuery := "SELECT COUNT(*) FROM students"
-
-	countArgs := args[:len(args)-2]
-
-	if len(conditions) > 0 {
-		countQuery += " WHERE " + strings.Join(conditions, " AND ")
-	}
-
-	var total int
-
-	err = db.QueryRow(
-		c.Context(),
-		countQuery,
-		countArgs...,
-	).Scan(&total)
-
-	if err != nil {
-		return fail(
-			c,
-			fiber.StatusInternalServerError,
-			"gagal menghitung total student",
 			err.Error(),
 		)
 	}

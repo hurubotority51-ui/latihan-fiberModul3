@@ -1,9 +1,11 @@
 package main
+
 import (
 	"context"
 	"testing"
 	"time"
 )
+
 func TestConnectDB(t *testing.T) {
 	conn, err := connectDB()
 	if err != nil {

@@ -15,6 +15,7 @@ func main() {
 		panic(err)
 	}
 	defer db.Close(context.Background())
+	studentRepo = NewPostgresStudentRepository(db)
 
 	app := fiber.New()
 

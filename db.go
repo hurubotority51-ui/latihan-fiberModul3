@@ -10,6 +10,7 @@ import (
 )
 
 var db *pgx.Conn
+var studentRepo StudentRepository
 
 func connectDB() (*pgx.Conn, error) {
 	connString := os.Getenv("DATABASE_URL")
